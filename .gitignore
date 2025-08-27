@@ -1,0 +1,35 @@
+# Virtual environment
+.venv/
+venv/
+ENV/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pdb
+
+# Build / dist
+build/
+dist/
+*.spec
+
+# Models
+models/
+
+# TensorBoard logs
+logs/
+runs/
+
+# Editor / IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Requirements backup
+*.bak
+*.swp
