@@ -33,3 +33,6 @@ Thumbs.db
 # Requirements backup
 *.bak
 *.swp
+
+# FFMPEG
+ffmpeg.exe
