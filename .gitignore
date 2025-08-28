@@ -36,3 +36,11 @@ Thumbs.db
 
 # FFMPEG
 ffmpeg.exe
+
+# Audio file
+*.wav
+*.mp3
+*.m4a
+
+# srt
+*.srt
