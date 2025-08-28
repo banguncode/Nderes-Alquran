@@ -11,10 +11,8 @@ from transformers import (
     GenerationConfig,
 )
 import librosa
-import numpy as np
 from datetime import timedelta
 import re
-import sys
 import subprocess
 from difflib import SequenceMatcher
 import wave
