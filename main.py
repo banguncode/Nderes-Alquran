@@ -17,13 +17,82 @@ import re
 import sys
 import subprocess
 from difflib import SequenceMatcher
+import wave
+import pyaudio
+import webbrowser
+
+
+class AudioRecorder:
+    def __init__(self):
+        self.chunk = 1024
+        self.format = pyaudio.paInt16
+        self.channels = 1
+        self.rate = 16000
+        self.frames = []
+        self.recording = False
+        self.p = None
+        self.stream = None
+    
+    def start_recording(self):
+        """Start recording audio"""
+        try:
+            self.p = pyaudio.PyAudio()
+            self.stream = self.p.open(
+                format=self.format,
+                channels=self.channels,
+                rate=self.rate,
+                input=True,
+                frames_per_buffer=self.chunk
+            )
+            self.frames = []
+            self.recording = True
+            return True
+        except Exception as e:
+            print(f"Error starting recording: {e}")
+            return False
+    
+    def record_chunk(self):
+        """Record a chunk of audio"""
+        if self.recording and self.stream:
+            try:
+                data = self.stream.read(self.chunk, exception_on_overflow=False)
+                self.frames.append(data)
+                return True
+            except Exception as e:
+                print(f"Error recording chunk: {e}")
+                return False
+        return False
+    
+    def stop_recording(self):
+        """Stop recording and return audio data"""
+        if self.stream:
+            self.stream.stop_stream()
+            self.stream.close()
+        if self.p:
+            self.p.terminate()
+        self.recording = False
+        return self.frames
+    
+    def save_recording(self, filename):
+        """Save recorded audio to file"""
+        try:
+            wf = wave.open(filename, 'wb')
+            wf.setnchannels(self.channels)
+            wf.setsampwidth(self.p.get_sample_size(self.format))
+            wf.setframerate(self.rate)
+            wf.writeframes(b''.join(self.frames))
+            wf.close()
+            return True
+        except Exception as e:
+            print(f"Error saving recording: {e}")
+            return False
 
 
 class QuranSRTGenerator:
     def __init__(self, root):
         self.root = root
         self.root.title("Nderes Al-Quran")
-        self.root.geometry("800x600")
+        self.root.geometry("900x700")
         self.root.configure(bg="#2c3e50")
 
         # Model setup
@@ -32,6 +101,11 @@ class QuranSRTGenerator:
         self.whisper_model = None
         self.ffmpeg_path = None
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
+
+        # Audio recorder
+        self.recorder = AudioRecorder()
+        self.recording = False
+        self.record_thread = None
 
         # Model directory setup
         self.script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -76,7 +150,7 @@ class QuranSRTGenerator:
 
     def setup_ui(self):
         # Header
-        header_frame = tk.Frame(self.root, bg="#34495e", height=80)
+        header_frame = tk.Frame(self.root, bg="#34495e", height=100)
         header_frame.pack(fill="x", padx=10, pady=10)
         header_frame.pack_propagate(False)
 
@@ -98,36 +172,144 @@ class QuranSRTGenerator:
         )
         subtitle_label.pack()
 
+        # Donation frame
+        donation_frame = tk.Frame(header_frame, bg="#34495e")
+        donation_frame.pack(pady=5)
+
+        donation_label = tk.Label(
+            donation_frame,
+            text="Dukung pengembangan aplikasi ini:",
+            font=("Arial", 9),
+            fg="#ecf0f1",
+            bg="#34495e",
+        )
+        donation_label.pack(side="left", padx=5)
+
+        # PayPal button
+        paypal_btn = tk.Button(
+            donation_frame,
+            text="PayPal",
+            command=lambda: self.open_donation_link("https://paypal.me/rumhaidar"),
+            bg="#3498db",
+            fg="white",
+            font=("Arial", 8, "bold"),
+            relief="flat",
+            padx=10,
+            pady=2,
+        )
+        paypal_btn.pack(side="left", padx=2)
+
+        # Ko-fi button
+        kofi_btn = tk.Button(
+            donation_frame,
+            text="☕ trakteer",
+            command=lambda: self.open_donation_link("https://trakteer.id/rumhaidar"),
+            bg="#ff5722",
+            fg="white",
+            font=("Arial", 8, "bold"),
+            relief="flat",
+            padx=10,
+            pady=2,
+        )
+        kofi_btn.pack(side="left", padx=2)
+
+        # GitHub button
+        github_btn = tk.Button(
+            donation_frame,
+            text="GitHub",
+            command=lambda: self.open_donation_link("https://github.com/banguncode"),
+            bg="#2c3e50",
+            fg="white",
+            font=("Arial", 8, "bold"),
+            relief="flat",
+            padx=10,
+            pady=2,
+        )
+        github_btn.pack(side="left", padx=2)
+
         # Main content frame
         main_frame = tk.Frame(self.root, bg="#2c3e50")
         main_frame.pack(fill="both", expand=True, padx=10)
 
-        # File selection frame
-        file_frame = tk.LabelFrame(
+        # Audio input frame
+        input_frame = tk.LabelFrame(
             main_frame,
-            text="Pilih File Audio",
+            text="Input Audio",
             font=("Arial", 12, "bold"),
             fg="white",
             bg="#2c3e50",
         )
-        file_frame.pack(fill="x", pady=10)
+        input_frame.pack(fill="x", pady=10)
+
+        # File selection section
+        file_section = tk.Frame(input_frame, bg="#2c3e50")
+        file_section.pack(fill="x", pady=5)
 
         tk.Label(
-            file_frame, text="File Audio:", font=("Arial", 10), fg="white", bg="#2c3e50"
+            file_section, text="File Audio:", font=("Arial", 10), fg="white", bg="#2c3e50"
         ).grid(row=0, column=0, sticky="w", padx=10, pady=5)
 
         tk.Entry(
-            file_frame, textvariable=self.audio_file, width=50, font=("Arial", 10)
+            file_section, textvariable=self.audio_file, width=40, font=("Arial", 10)
         ).grid(row=0, column=1, padx=10, pady=5)
 
         tk.Button(
-            file_frame,
+            file_section,
             text="Browse",
             command=self.browse_audio_file,
             bg="#3498db",
             fg="white",
             font=("Arial", 10, "bold"),
-        ).grid(row=0, column=2, padx=10, pady=5)
+        ).grid(row=0, column=2, padx=5, pady=5)
+
+        # Separator
+        separator = tk.Frame(input_frame, height=2, bg="#7f8c8d")
+        separator.pack(fill="x", padx=10, pady=10)
+
+        # Recording section
+        record_section = tk.Frame(input_frame, bg="#2c3e50")
+        record_section.pack(fill="x", pady=5)
+
+        tk.Label(
+            record_section,
+            text="Atau Rekam Audio:",
+            font=("Arial", 10, "bold"),
+            fg="white",
+            bg="#2c3e50",
+        ).pack(anchor="w", padx=10)
+
+        record_controls = tk.Frame(record_section, bg="#2c3e50")
+        record_controls.pack(fill="x", padx=10, pady=5)
+
+        self.record_btn = tk.Button(
+            record_controls,
+            text="🎤 Mulai Rekam",
+            command=self.toggle_recording,
+            bg="#e74c3c",
+            fg="white",
+            font=("Arial", 10, "bold"),
+            width=15,
+        )
+        self.record_btn.pack(side="left", padx=5)
+
+        self.record_status_label = tk.Label(
+            record_controls,
+            text="Siap merekam",
+            font=("Arial", 10),
+            fg="#95a5a6",
+            bg="#2c3e50",
+        )
+        self.record_status_label.pack(side="left", padx=10)
+
+        # Recording info
+        record_info = tk.Label(
+            record_section,
+            text="💡 Tips: Pastikan mikrofon berfungsi dan lingkungan tenang untuk hasil terbaik",
+            font=("Arial", 9),
+            fg="#95a5a6",
+            bg="#2c3e50",
+        )
+        record_info.pack(anchor="w", padx=10, pady=2)
 
         # Output directory frame
         output_frame = tk.LabelFrame(
@@ -225,9 +407,98 @@ class QuranSRTGenerator:
         log_frame.pack(fill="both", expand=True, pady=10)
 
         self.log_text = scrolledtext.ScrolledText(
-            log_frame, height=10, bg="#34495e", fg="white", font=("Consolas", 9)
+            log_frame, height=8, bg="#34495e", fg="white", font=("Consolas", 9)
         )
         self.log_text.pack(fill="both", expand=True, padx=10, pady=10)
+
+    def open_donation_link(self, url):
+        """Open donation link in browser"""
+        try:
+            webbrowser.open(url)
+            self.log_message(f"Membuka link donasi: {url}")
+        except Exception as e:
+            self.log_message(f"Error membuka link: {str(e)}")
+            messagebox.showerror("Error", f"Gagal membuka link: {str(e)}")
+
+    def toggle_recording(self):
+        """Toggle audio recording"""
+        if not self.recording:
+            self.start_recording()
+        else:
+            self.stop_recording()
+
+    def start_recording(self):
+        """Start audio recording"""
+        try:
+            # Check if pyaudio is available
+            try:
+                import pyaudio
+            except ImportError:
+                messagebox.showerror(
+                    "Error", 
+                    "PyAudio tidak ditemukan!\n\n"
+                    "Install dengan: pip install pyaudio\n"
+                    "Atau download dari: https://www.lfd.uci.edu/~gohlke/pythonlibs/#pyaudio"
+                )
+                return
+
+            if self.recorder.start_recording():
+                self.recording = True
+                self.record_btn.config(text="⏹️ Stop Rekam", bg="#c0392b")
+                self.record_status_label.config(text="🔴 Merekam...", fg="#e74c3c")
+                self.log_message("Mulai merekam audio...")
+                
+                # Start recording thread
+                self.record_thread = threading.Thread(target=self.recording_loop, daemon=True)
+                self.record_thread.start()
+            else:
+                messagebox.showerror("Error", "Gagal memulai perekaman audio!")
+                
+        except Exception as e:
+            self.log_message(f"Error starting recording: {str(e)}")
+            messagebox.showerror("Error", f"Gagal memulai perekaman: {str(e)}")
+
+    def recording_loop(self):
+        """Recording loop in separate thread"""
+        while self.recording:
+            if not self.recorder.record_chunk():
+                break
+            # Small delay to prevent high CPU usage
+            threading.Event().wait(0.01)
+
+    def stop_recording(self):
+        """Stop audio recording and save file"""
+        try:
+            self.recording = False
+            self.recorder.stop_recording()
+            
+            self.record_btn.config(text="🎤 Mulai Rekam", bg="#e74c3c")
+            self.record_status_label.config(text="💾 Menyimpan...", fg="#f39c12")
+            
+            # Save recording
+            timestamp = threading.current_thread().ident
+            filename = f"recording_{timestamp}.wav"
+            filepath = os.path.join(self.output_dir.get(), filename)
+            
+            if self.recorder.save_recording(filepath):
+                self.audio_file.set(filepath)
+                self.record_status_label.config(text="✅ Rekaman tersimpan", fg="#27ae60")
+                self.log_message(f"Rekaman audio tersimpan: {filepath}")
+                
+                # Auto-generate after 2 seconds
+                self.root.after(2000, lambda: self.record_status_label.config(text="Siap merekam", fg="#95a5a6"))
+                
+                # Ask if user wants to generate subtitle immediately
+                if messagebox.askyesno("Rekaman Selesai", "Rekaman audio berhasil disimpan!\n\nMulai generate subtitle sekarang?"):
+                    self.start_generation()
+            else:
+                self.record_status_label.config(text="❌ Gagal menyimpan", fg="#e74c3c")
+                messagebox.showerror("Error", "Gagal menyimpan rekaman audio!")
+                
+        except Exception as e:
+            self.log_message(f"Error stopping recording: {str(e)}")
+            self.record_status_label.config(text="❌ Error", fg="#e74c3c")
+            messagebox.showerror("Error", f"Gagal menghentikan perekaman: {str(e)}")
 
     def log_message(self, message):
         """Add message to log"""
