@@ -34,8 +34,8 @@ Thumbs.db
 *.bak
 *.swp
 
-# FFMPEG
-ffmpeg.exe
+# Build py to exe
+output/
 
 # Audio file
 *.wav
